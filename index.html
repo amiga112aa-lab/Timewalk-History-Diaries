@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Timewalk: History Diaries</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #000;
+      font-family: Arial, sans-serif;
+      color: #fff;
+    }
+    #blocker {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.7);
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      z-index: 5;
+    }
+    #instructions {
+      font-size: 20px;
+      cursor: pointer;
+    }
+    #hud {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 4;
+      font-size: 14px;
+      background: rgba(0,0,0,0.4);
+      padding: 8px 12px;
+      border-radius: 6px;
+    }
+    #fullscreen-btn {
+      margin-top: 6px;
+      padding: 4px 8px;
+      font-size: 12px;
+      border-radius: 4px;
+      border: 1px solid #666;
+      background: rgba(30,30,30,0.8);
+      color: #fff;
+      cursor: pointer;
+    }
+    #fullscreen-btn:hover {
+      background: rgba(60,60,60,0.9);
+    }
+    #chatbox {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 420px;
+      z-index: 4;
+      background: rgba(0,0,0,0.7);
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+    #chat-log {
+      height: 120px;
+      overflow-y: auto;
+      border: 1px solid #555;
+      padding: 6px;
+      margin-bottom: 8px;
+      background: rgba(10,10,10,0.9);
+    }
+    #chat-input {
+      width: 75%;
+      padding: 6px;
+      border-radius: 4px;
+      border: 1px solid #444;
+      background: #111;
+      color: #eee;
+    }
+    #chat-send {
+      width: 20%;
+      padding: 6px;
+      margin-left: 4px;
+      border-radius: 4px;
+      border: none;
+      background: #2e86de;
+      color: #fff;
+      cursor: pointer;
+    }
+    #chat-send:hover {
+      background: #1b4f72;
+    }
+  </style>
+</head>
+<body>
+  <!-- Pointer lock overlay -->
+  <div id="blocker">
+    <div id="instructions">
+      <span style="font-size:36px;">Timewalk: History Diaries</span><br><br>
+      Click to play<br>
+      Move: WASD, Jump: SPACE, Look: MOUSE, Interact: E<br><br>
+      Use the chat terminal at the bottom to tell the AI what you want to learn.
+    </div>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div>Year: <span id="year-label">2050</span></div>
+    <div>Era: <span id="era-label">Lab Hub</span></div>
+    <div>Diary pages: <span id="pages-label">0</span></div>
+    <div>Currency: <span id="currency-label">0</span></div>
+    <button id="fullscreen-btn">Fullscreen</button>
+  </div>
+
+  <!-- Chatbox -->
+  <div id="chatbox">
+    <div id="chat-log"></div>
+    <input id="chat-input" type="text" placeholder="Ask: 'I want to learn about samurai Japan'">
+    <button id="chat-send">Send</button>
+  </div>
+
+  <script type="module">
+    import * as THREE from "https://unpkg.com/three@0.161.0/build/three.module.js";
+    import { PointerLockControls } from "https://unpkg.com/three@0.161.0/examples/jsm/controls/PointerLockControls.js";
+
+    let camera, scene, renderer, controls;
+    let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+    let canJump = false;
+    const velocity = new THREE.Vector3();
+    const direction = new THREE.Vector3();
+    const objects = [];
+    const clock = new THREE.Clock();
+    let ERAS = [];
+
+    function init() {
+      // Scene and camera
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x000000);
+      scene.fog = new THREE.Fog(0x000000, 0, 750);
+
+      camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        1,
+        2000
+      );
+
+      // Lights
+      const light = new THREE.HemisphereLight(0xffffff, 0x444444);
+      light.position.set(0, 200, 0);
+      scene.add(light);
+
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
+      dirLight.position.set(0, 200, 100);
+      scene.add(dirLight);
+
+      // Floor
+      const floorGeometry = new THREE.PlaneGeometry(4000, 4000, 20, 20);
+      floorGeometry.rotateX(-Math.PI / 2);
+      const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x202020 });
+      const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+      scene.add(floor);
+      objects.push(floor);
+
+      // Diary pages store
+      const diaryPages = [];
+      window._timewalk = { diaryPages };
+
+      // Renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      // Controls (first person + pointer lock) [web:61][web:56]
+      controls = new PointerLockControls(camera, document.body);
+
+      const blocker = document.getElementById("blocker");
+      const instructions = document.getElementById("instructions");
+
+      instructions.addEventListener("click", function () {
+        controls.lock();
+      });
+
+      controls.addEventListener("lock", function () {
+        blocker.style.display = "none";
+      });
+
+      controls.addEventListener("unlock", function () {
+        blocker.style.display = "flex";
+      });
+
+      scene.add(controls.getObject());
+      camera.position.y = 10;
+
+      // Keyboard
+      const onKeyDown = function (event) {
+        switch (event.code) {
+          case "ArrowUp":
+          case "KeyW":
+            moveForward = true;
+            break;
+          case "ArrowLeft":
+          case "KeyA":
+            moveLeft = true;
+            break;
+          case "ArrowDown":
+          case "KeyS":
+            moveBackward = true;
+            break;
+          case "ArrowRight":
+          case "KeyD":
+            moveRight = true;
+            break;
+          case "Space":
+            if (canJump === true) velocity.y += 350;
+            canJump = false;
+            break;
+          case "KeyE":
+            attemptInteraction();
+            break;
+        }
+      };
+
+      const onKeyUp = function (event) {
+        switch (event.code) {
+          case "ArrowUp":
+          case "KeyW":
+            moveForward = false;
+            break;
+          case "ArrowLeft":
+          case "KeyA":
+            moveLeft = false;
+            break;
+          case "ArrowDown":
+          case "KeyS":
+            moveBackward = false;
+            break;
+          case "ArrowRight":
+          case "KeyD":
+            moveRight = false;
+            break;
+        }
+      };
+
+      document.addEventListener("keydown", onKeyDown);
+      document.addEventListener("keyup", onKeyUp);
+      window.addEventListener("resize", onWindowResize);
+
+      // Game state
+      window.gameState = {
+        year: 2050,
+        era: "Lab Hub",
+        pages: 0,
+        currency: 0
+      };
+      updateHUD();
+
+      // Setup
+      setupEras();
+      setupChat();
+      setupFullscreenButton(); // fullscreen toggle [web:90][web:101]
+
+      animate();
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const delta = clock.getDelta();
+      const speed = 400.0;
+
+      if (controls.isLocked === true) {
+        velocity.x -= velocity.x * 10.0 * delta;
+        velocity.z -= velocity.z * 10.0 * delta;
+        velocity.y -= 9.8 * 100.0 * delta;
+
+        direction.z = Number(moveForward) - Number(moveBackward);
+        direction.x = Number(moveRight) - Number(moveLeft);
+        direction.normalize();
+
+        if (moveForward || moveBackward) velocity.z -= direction.z * speed * delta;
+        if (moveLeft || moveRight) velocity.x -= direction.x * speed * delta;
+
+        controls.moveRight(-velocity.x * delta);
+        controls.moveForward(-velocity.z * delta);
+
+        controls.getObject().position.y += velocity.y * delta;
+
+        if (controls.getObject().position.y < 10) {
+          velocity.y = 0;
+          controls.getObject().position.y = 10;
+          canJump = true;
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    // ==== ERA DATA ====
+    function setupEras() {
+      ERAS = [
+        {
+          id: "classical_antiquity",
+          name: "Classical Antiquity",
+          region: "Europe",
+          keywords: ["greece", "rome", "roman", "greek", "classical", "antiquity"],
+          year: -300,
+          position: new THREE.Vector3(400, 10, 0),
+          intro: "Marble columns rise above busy forums. Philosophers argue in shaded courtyards while soldiers in armour march through stone streets.",
+          diaryFacts: [
+            "In Classical Athens, only free male citizens could vote in the assembly.",
+            "The Roman Empire once stretched from Britain in the west to Mesopotamia in the east.",
+            "Roman roads were engineered so well that some are still in use today."
+          ]
+        },
+        {
+          id: "middle_ages_europe",
+          name: "Middle Ages Europe",
+          region: "Europe",
+          keywords: ["middle ages", "medieval", "feudal", "knight", "castle"],
+          year: 1200,
+          position: new THREE.Vector3(0, 10, 400),
+          intro: "Castles overlook small walled towns. Farmers work in the fields while armoured knights ride past banners snapping in the wind.",
+          diaryFacts: [
+            "Most people in medieval Europe were peasants who farmed land owned by nobles.",
+            "Castles were both military forts and symbols of a lord’s power.",
+            "Monasteries preserved many ancient texts by copying them by hand."
+          ]
+        },
+        {
+          id: "early_modern_europe",
+          name: "Early Modern Europe",
+          region: "Europe",
+          keywords: ["renaissance", "reformation", "age of exploration", "columbus", "da vinci"],
+          year: 1550,
+          position: new THREE.Vector3(-400, 10, 0),
+          intro: "Workshops buzz with painters and inventors. Printing presses clatter as ships prepare to cross oceans from crowded ports.",
+          diaryFacts: [
+            "The invention of the printing press in the 15th century made books cheaper and ideas spread faster.",
+            "The Renaissance began in Italian cities like Florence before spreading across Europe.",
+            "European voyages of exploration connected continents through trade and colonization."
+          ]
+        },
+        {
+          id: "modern_europe",
+          name: "Modern Europe",
+          region: "Europe",
+          keywords: ["industrial revolution", "world war", "ww1", "ww2", "cold war", "factory"],
+          year: 1916,
+          position: new THREE.Vector3(0, 10, -400),
+          intro: "Factories rumble with machinery and smoke. Railways, trenches, and ruined cities tell stories of rapid change and violent conflict.",
+          diaryFacts: [
+            "The Industrial Revolution shifted work from farms to factories and cities.",
+            "World War I saw the use of trench warfare and new weapons like tanks and gas.",
+            "After World War II, Europe was divided by the Cold War between rival superpowers."
+          ]
+        },
+        // ASIA
+        {
+          id: "qin_china",
+          name: "Qin Dynasty China",
+          region: "Asia",
+          keywords: ["qin", "great wall", "first emperor", "imperial china", "ancient china"],
+          year: -220,
+          position: new THREE.Vector3(600, 10, 200),
+          intro: "Earth walls and watchtowers line the horizon. Officials in long robes carry bamboo slips as soldiers guard border fortifications.",
+          diaryFacts: [
+            "The Qin dynasty unified many warring states into the first Chinese empire.",
+            "Qin Shi Huang ordered the building and linking of early Great Wall sections.",
+            "A standardized writing system and measurements helped unify the empire."
+          ]
+        },
+        {
+          id: "tang_china",
+          name: "Tang Dynasty China",
+          region: "Asia",
+          keywords: ["tang", "silk road", "chang'an", "imperial"],
+          year: 700,
+          position: new THREE.Vector3(-600, 10, 200),
+          intro: "Bustling markets sell silk, spices, and scrolls. Poets recite verses as foreign merchants pass beneath high city gates.",
+          diaryFacts: [
+            "The Tang dynasty is often seen as a golden age of Chinese poetry and art.",
+            "Chang’an was one of the largest and most cosmopolitan cities in the world.",
+            "The Silk Road linked China with Central Asia, the Middle East, and Europe."
+          ]
+        },
+        {
+          id: "feudal_japan",
+          name: "Feudal Japan",
+          region: "Asia",
+          keywords: ["samurai", "shogun", "edo", "feudal japan", "castle town"],
+          year: 1600,
+          position: new THREE.Vector3(200, 10, 600),
+          intro: "Paper lanterns glow along narrow streets. Samurai in armour walk past wooden houses and castle walls surrounded by moats.",
+          diaryFacts: [
+            "Samurai served powerful lords called daimyō and followed a warrior code.",
+            "During the Edo period, Japan limited foreign contact to control trade and ideas.",
+            "Peaceful times shifted samurai roles from constant warfare to administration."
+          ]
+        },
+        {
+          id: "modern_japan",
+          name: "Modern Japan",
+          region: "Asia",
+          keywords: ["modern japan", "meiji", "tokyo", "industrial japan"],
+          year: 1900,
+          position: new THREE.Vector3(-200, 10, 600),
+          intro: "Steam trains and telegraph wires cut through old landscapes. Western-style uniforms mix with traditional clothing in busy streets.",
+          diaryFacts: [
+            "The Meiji Restoration rapidly industrialized Japan in the late 19th century.",
+            "Japan adopted many Western technologies while keeping its own traditions.",
+            "By the early 20th century, Japan had become a major industrial power."
+          ]
+        },
+        {
+          id: "maurya_india",
+          name: "Maurya Empire India",
+          region: "Asia",
+          keywords: ["maurya", "ashoka", "ancient india", "vedic", "buddhism india"],
+          year: -250,
+          position: new THREE.Vector3(600, 10, -200),
+          intro: "Stone pillars rise from dusty plazas. Traders and monks share news along routes that cut across a vast empire.",
+          diaryFacts: [
+            "The Maurya Empire was one of the largest empires in ancient India.",
+            "Emperor Ashoka promoted Buddhism after witnessing the costs of war.",
+            "Ashoka’s edicts were carved on pillars and rocks across his realm."
+          ]
+        },
+        {
+          id: "mughal_india",
+          name: "Mughal Empire India",
+          region: "Asia",
+          keywords: ["mughal", "taj mahal", "mogul", "mughal india"],
+          year: 1650,
+          position: new THREE.Vector3(-600, 10, -200),
+          intro: "Marble domes and intricate gardens decorate royal cities. Artists, scholars, and soldiers fill grand palaces.",
+          diaryFacts: [
+            "The Mughal Empire blended Persian, Indian, and Central Asian cultures.",
+            "Monuments like the Taj Mahal were built during the Mughal period.",
+            "Mughal rulers supported art, architecture, and literature."
+          ]
+        },
+        {
+          id: "british_raj_india",
+          name: "British Raj India",
+          region: "Asia",
+          keywords: ["british raj", "colonial india", "east india company"],
+          year: 1880,
+          position: new THREE.Vector3(0, 10, 800),
+          intro: "Railway tracks run past crowded stations. Colonial offices stand beside older temples and markets.",
+          diaryFacts: [
+            "The British Raj followed centuries of earlier trade and influence in India.",
+            "Railways were built to move goods, troops, and people across the subcontinent.",
+            "Indian leaders and movements later pushed for independence from colonial rule."
+          ]
+        },
+        // AMERICAS
+        {
+          id: "precolumbian_americas",
+          name: "Pre-Columbian Americas",
+          region: "Americas",
+          keywords: ["maya", "aztec", "inca", "olmec", "pre-columbian", "norte chico"],
+          year: 1200,
+          position: new THREE.Vector3(800, 10, 0),
+          intro: "Stone pyramids and terraces rise above forests and mountains. Ritual plazas echo with music, markets, and ceremony.",
+          diaryFacts: [
+            "Pre-Columbian civilizations like the Maya and Aztec built complex cities and temples.",
+            "The Inca created extensive road networks through the Andes Mountains.",
+            "Many cultures developed accurate calendars and astronomical knowledge."
+          ]
+        },
+        {
+          id: "colonial_americas",
+          name: "Colonial Americas",
+          region: "Americas",
+          keywords: ["colonial america", "colonization", "conquistador", "spanish empire"],
+          year: 1650,
+          position: new THREE.Vector3(800, 10, 200),
+          intro: "New towns grow beside old indigenous settlements. European ships crowd harbours while plantations spread inland.",
+          diaryFacts: [
+            "European colonization drastically changed the societies and environments of the Americas.",
+            "New trade routes linked Europe, Africa, and the Americas in the Atlantic world.",
+            "Conflicts, disease, and forced labour had huge impacts on indigenous peoples."
+          ]
+        },
+        {
+          id: "modern_americas",
+          name: "Modern Americas",
+          region: "Americas",
+          keywords: ["modern america", "nation building", "industrialization", "united states", "latin america"],
+          year: 1900,
+          position: new THREE.Vector3(800, 10, -200),
+          intro: "Expanding cities rise above railways and factories. Debates about rights and identity shape new nations.",
+          diaryFacts: [
+            "Many American nations gained independence from European empires in the 18th and 19th centuries.",
+            "Industrialization led to rapid urban growth and social change.",
+            "Struggles over civil rights and democracy continued into the 20th century and beyond."
+          ]
+        },
+        // MIDDLE EAST
+        {
+          id: "ancient_near_east",
+          name: "Ancient Near East",
+          region: "Middle East",
+          keywords: ["sumerian", "babylonian", "assyria", "mesopotamia", "cuneiform"],
+          year: -1700,
+          position: new THREE.Vector3(-800, 10, 0),
+          intro: "Ziggurats tower over river plains. Clay tablets record trade, myths, and laws in wedge-shaped writing.",
+          diaryFacts: [
+            "Mesopotamia is often called a cradle of civilization for its early cities and writing.",
+            "Cuneiform writing was pressed into clay tablets with a reed stylus.",
+            "Empires like Babylon and Assyria rose and fell along the Tigris and Euphrates rivers."
+          ]
+        },
+        {
+          id: "persian_empire",
+          name: "Persian Empire",
+          region: "Middle East",
+          keywords: ["persian empire", "cyrus", "darius", "achaemenid"],
+          year: -500,
+          position: new THREE.Vector3(-800, 10, 200),
+          intro: "Grand palaces overlook wide processional roads. Envoys from many lands gather at the imperial court.",
+          diaryFacts: [
+            "The Achaemenid Persian Empire ruled over many different peoples and cultures.",
+            "Royal roads and relay stations helped messages travel quickly across the empire.",
+            "Rulers like Cyrus and Darius are known for both conquest and administration."
+          ]
+        },
+        {
+          id: "islamic_caliphates",
+          name: "Islamic Caliphates",
+          region: "Middle East",
+          keywords: ["caliphate", "islamic golden age", "baghdad", "ummayad", "abbasid"],
+          year: 900,
+          position: new THREE.Vector3(-800, 10, -200),
+          intro: "Libraries, markets, and mosques fill thriving cities. Scholars study astronomy, medicine, and philosophy.",
+          diaryFacts: [
+            "The early Islamic caliphates spread across parts of Asia, Africa, and Europe.",
+            "Centers like Baghdad became famous for learning and translation.",
+            "Scholars preserved and expanded knowledge from many earlier cultures."
+          ]
+        }
+      ];
+    }
+
+    // ==== INTERACTION ====
+    function attemptInteraction() {
+      const diaryPages = window._timewalk.diaryPages;
+      const camPos = controls.getObject().position;
+      let collectedIndex = -1;
+
+      diaryPages.forEach((page, i) => {
+        const dist = camPos.distanceTo(page.mesh.position);
+        if (dist < 8) collectedIndex = i;
+      });
+
+      if (collectedIndex !== -1) {
+        const page = diaryPages[collectedIndex];
+        scene.remove(page.mesh);
+        diaryPages.splice(collectedIndex, 1);
+        window.gameState.pages += 1;
+        window.gameState.currency += 50;
+        updateHUD();
+        addChatBotMessage("You picked up a diary page: " + page.fact);
+      }
+    }
+
+    // ==== HUD ====
+    function updateHUD() {
+      document.getElementById("year-label").textContent = window.gameState.year;
+      document.getElementById("era-label").textContent = window.gameState.era;
+      document.getElementById("pages-label").textContent = window.gameState.pages;
+      document.getElementById("currency-label").textContent = window.gameState.currency;
+    }
+
+    // ==== CHAT ====
+    function setupChat() {
+      const input = document.getElementById("chat-input");
+      const send = document.getElementById("chat-send");
+
+      function sendMessage() {
+        const text = input.value.trim();
+        if (!text) return;
+        addPlayerMessage(text);
+        input.value = "";
+        handleAI(text);
+      }
+
+      send.addEventListener("click", sendMessage);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") sendMessage();
+      });
+
+      addChatBotMessage("Welcome, Timewalker. What do you want to learn about today? (Example: 'the Roman Empire', 'samurai Japan', 'Industrial Revolution in Europe')");
+    }
+
+    function addPlayerMessage(text) {
+      const log = document.getElementById("chat-log");
+      const p = document.createElement("div");
+      p.style.color = "#9be7ff";
+      p.textContent = "You: " + text;
+      log.appendChild(p);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function addChatBotMessage(text) {
+      const log = document.getElementById("chat-log");
+      const p = document.createElement("div");
+      p.style.color = "#f5c16c";
+      p.textContent = "AI: " + text;
+      log.appendChild(p);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    // ==== "FAKE AI" ERA ROUTING ====
+    function handleAI(text) {
+      const era = findBestEra(text);
+      if (!era) {
+        addChatBotMessage("I’m not sure which era that is yet. Try mentioning a region, empire, or time period, like 'Roman Empire', 'samurai Japan', or 'Industrial Revolution'.");
+        return;
+      }
+      teleportToEraData(era);
+    }
+
+    function findBestEra(text) {
+      const lower = text.toLowerCase();
+      let bestEra = null;
+      let bestScore = 0;
+
+      for (const era of ERAS) {
+        let score = 0;
+
+        for (const kw of era.keywords) {
+          if (lower.includes(kw)) score += 2;
+        }
+
+        if (lower.includes("europe") && era.region === "Europe") score += 1;
+        if (lower.includes("asia") && era.region === "Asia") score += 1;
+        if (lower.includes("america") || lower.includes("americas")) {
+          if (era.region === "Americas") score += 1;
+        }
+        if (lower.includes("middle east") || lower.includes("near east")) {
+          if (era.region === "Middle East") score += 1;
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestEra = era;
+        }
+      }
+
+      return bestScore > 0 ? bestEra : null;
+    }
+
+    function teleportToEraData(era) {
+      controls.getObject().position.copy(era.position);
+      window.gameState.era = era.name;
+      window.gameState.year = era.year;
+      updateHUD();
+
+      addChatBotMessage("Time machine engaged. Arriving in " + era.name + " (" + era.year + ").");
+      addChatBotMessage(era.intro);
+
+      spawnEraDiaryPages(era);
+    }
+
+    function spawnEraDiaryPages(era) {
+      const diaryPages = window._timewalk.diaryPages;
+
+      diaryPages.slice().forEach(p => {
+        scene.remove(p.mesh);
+      });
+      diaryPages.length = 0;
+
+      const center = controls.getObject().position.clone();
+      const radius = 30;
+
+      era.diaryFacts.forEach((fact, index) => {
+        const angle = (index / era.diaryFacts.length) * Math.PI * 2;
+        const pos = new THREE.Vector3(
+          center.x + Math.cos(angle) * radius,
+          center.y,
+          center.z + Math.sin(angle) * radius
+        );
+        createDiaryPageDynamic(pos, fact);
+      });
+
+      addChatBotMessage("Diary pages shattered across this era. Explore the area and press E near glowing shards to collect facts.");
+    }
+
+    function createDiaryPageDynamic(pos, fact) {
+      const g = new THREE.BoxGeometry(4, 4, 1);
+      const m = new THREE.MeshStandardMaterial({
+        color: 0x00ffdd,
+        emissive: 0x00ffff,
+        emissiveIntensity: 0.6
+      });
+      const cube = new THREE.Mesh(g, m);
+      cube.position.copy(pos);
+      scene.add(cube);
+      window._timewalk.diaryPages.push({ mesh: cube, fact });
+    }
+
+    // ==== FULLSCREEN BUTTON ====
+    function setupFullscreenButton() {
+      const btn = document.getElementById("fullscreen-btn");
+      btn.addEventListener("click", () => {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen?.();
+        } else {
+          document.exitFullscreen?.();
+        }
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>
+
