@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Timewalk: History Diaries</title>
-  <style> 
+  <style>
     html, body {
       margin: 0;
       padding: 0;
@@ -121,6 +121,24 @@
     <button id="chat-send">Send</button>
   </div>
 
+  <!-- End of run screen -->
+  <div id="end-screen" style="display:none;
+       position:fixed; inset:0;
+       background:rgba(0,0,0,0.8);
+       z-index:6; color:#fff;
+       display:flex; flex-direction:column;
+       align-items:center; justify-content:center;
+       text-align:center; font-family:Arial,sans-serif;">
+    <div id="end-message" style="font-size:24px; margin-bottom:12px;"></div>
+    <div id="end-currency" style="font-size:18px; margin-bottom:20px;"></div>
+    <button id="end-return"
+            style="padding:8px 16px; font-size:16px;
+                   border-radius:6px; border:none;
+                   background:#2e86de; color:#fff; cursor:pointer;">
+      Return to Lobby
+    </button>
+  </div>
+
   <script type="module">
     import * as THREE from "https://unpkg.com/three@0.161.0/build/three.module.js";
     import { PointerLockControls } from "https://unpkg.com/three@0.161.0/examples/jsm/controls/PointerLockControls.js";
@@ -174,7 +192,7 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(renderer.domElement);
 
-      // Controls (first person + pointer lock) [web:61][web:56]
+      // Controls (first person + pointer lock)
       controls = new PointerLockControls(camera, document.body);
 
       const blocker = document.getElementById("blocker");
@@ -261,7 +279,21 @@
       // Setup
       setupEras();
       setupChat();
-      setupFullscreenButton(); // fullscreen toggle [web:90][web:101]
+      setupFullscreenButton();
+
+      // End-screen button
+      document.getElementById("end-return").addEventListener("click", () => {
+        const endScreen = document.getElementById("end-screen");
+        endScreen.style.display = "none";
+
+        // Teleport back to 2050 lab hub
+        controls.getObject().position.set(0, 10, 0);
+        window.gameState.era = "Lab Hub";
+        window.gameState.year = 2050;
+        updateHUD();
+
+        addChatBotMessage("You are back in the 2050 lab hub. Choose another era to visit.");
+      });
 
       animate();
     }
@@ -582,6 +614,29 @@
       document.getElementById("currency-label").textContent = window.gameState.currency;
     }
 
+    // ==== END OF RUN SCREEN ====
+    // type: "good" | "bad" | "secret"
+    function showEndScreen(runCurrencyGain, type) {
+      const endScreen = document.getElementById("end-screen");
+      const msgEl = document.getElementById("end-message");
+      const curEl = document.getElementById("end-currency");
+
+      if (type === "good") {
+        msgEl.textContent = "Run complete! You safely returned to 2050.";
+      } else if (type === "bad") {
+        msgEl.textContent = "Bad ending... Your choices trapped you in the time stream.";
+      } else if (type === "secret") {
+        msgEl.textContent = "Secret ending unlocked! You uncovered a hidden truth in history.";
+      } else {
+        msgEl.textContent = "Run over.";
+      }
+
+      curEl.textContent = "+ " + runCurrencyGain + " currency";
+
+      endScreen.style.display = "flex";
+      controls.unlock();
+    }
+
     // ==== CHAT ====
     function setupChat() {
       const input = document.getElementById("chat-input");
@@ -621,8 +676,42 @@
       log.scrollTop = log.scrollHeight;
     }
 
-    // ==== "FAKE AI" ERA ROUTING ====
+    // ==== "FAKE AI" ERA ROUTING + ENDINGS ====
     function handleAI(text) {
+      const lower = text.toLowerCase();
+
+      // GOOD ENDING – normal clear
+      if (lower.includes("return to 2050") || lower.includes("go back to 2050")) {
+        const reward = 1000;
+        window.gameState.currency += reward;
+        updateHUD();
+        showEndScreen(reward, "good");
+        return;
+      }
+
+      // BAD ENDING – player gives up / fails
+      if (lower.includes("give up") || lower.includes("abandon mission")) {
+        const reward = 100; // small pity reward
+        window.gameState.currency += reward;
+        updateHUD();
+        showEndScreen(reward, "bad");
+        return;
+      }
+
+      // SECRET ENDING – only if they collected enough pages
+      if (lower.includes("reunite the diary pages") || lower.includes("secret ending")) {
+        if (window.gameState.pages >= 5) {
+          const reward = 2000;
+          window.gameState.currency += reward;
+          updateHUD();
+          showEndScreen(reward, "secret");
+        } else {
+          addChatBotMessage("AI: You haven’t collected enough diary shards to unlock the secret ending yet.");
+        }
+        return;
+      }
+
+      // Normal era routing
       const era = findBestEra(text);
       if (!era) {
         addChatBotMessage("I’m not sure which era that is yet. Try mentioning a region, empire, or time period, like 'Roman Empire', 'samurai Japan', or 'Industrial Revolution'.");
@@ -726,4 +815,3 @@
   </script>
 </body>
 </html>
-
