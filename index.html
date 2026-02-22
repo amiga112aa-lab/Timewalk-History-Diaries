@@ -38,7 +38,8 @@
       padding: 8px 12px;
       border-radius: 6px;
     }
-    #fullscreen-btn {
+    #fullscreen-btn,
+    #pause-btn {
       margin-top: 6px;
       padding: 4px 8px;
       font-size: 12px;
@@ -48,7 +49,8 @@
       color: #fff;
       cursor: pointer;
     }
-    #fullscreen-btn:hover {
+    #fullscreen-btn:hover,
+    #pause-btn:hover {
       background: rgba(60,60,60,0.9);
     }
     #chatbox {
@@ -112,6 +114,7 @@
     <div>Diary pages: <span id="pages-label">0</span></div>
     <div>Currency: <span id="currency-label">0</span></div>
     <button id="fullscreen-btn">Fullscreen</button>
+    <button id="pause-btn">Pause</button>
   </div>
 
   <!-- Chatbox -->
@@ -146,6 +149,7 @@
     let camera, scene, renderer, controls;
     let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
     let canJump = false;
+    let isPaused = false;
     const velocity = new THREE.Vector3();
     const direction = new THREE.Vector3();
     const objects = [];
@@ -280,20 +284,8 @@
       setupEras();
       setupChat();
       setupFullscreenButton();
-
-      // End-screen button
-      document.getElementById("end-return").addEventListener("click", () => {
-        const endScreen = document.getElementById("end-screen");
-        endScreen.style.display = "none";
-
-        // Teleport back to 2050 lab hub
-        controls.getObject().position.set(0, 10, 0);
-        window.gameState.era = "Lab Hub";
-        window.gameState.year = 2050;
-        updateHUD();
-
-        addChatBotMessage("You are back in the 2050 lab hub. Choose another era to visit.");
-      });
+      setupPauseButton();
+      setupEndScreenButton();
 
       animate();
     }
@@ -310,7 +302,7 @@
       const delta = clock.getDelta();
       const speed = 400.0;
 
-      if (controls.isLocked === true) {
+      if (controls.isLocked === true && !isPaused) {
         velocity.x -= velocity.x * 10.0 * delta;
         velocity.z -= velocity.z * 10.0 * delta;
         velocity.y -= 9.8 * 100.0 * delta;
@@ -634,7 +626,25 @@
       curEl.textContent = "+ " + runCurrencyGain + " currency";
 
       endScreen.style.display = "flex";
+
+      // Stop look/move, but do NOT go back to lobby yet
       controls.unlock();
+    }
+
+    function setupEndScreenButton() {
+      const btn = document.getElementById("end-return");
+      btn.addEventListener("click", () => {
+        const endScreen = document.getElementById("end-screen");
+        endScreen.style.display = "none";
+
+        // Teleport back to 2050 lab hub now
+        controls.getObject().position.set(0, 10, 0);
+        window.gameState.era = "Lab Hub";
+        window.gameState.year = 2050;
+        updateHUD();
+
+        addChatBotMessage("You are back in the 2050 lab hub. Choose another era to visit.");
+      });
     }
 
     // ==== CHAT ====
@@ -807,6 +817,21 @@
           document.documentElement.requestFullscreen?.();
         } else {
           document.exitFullscreen?.();
+        }
+      });
+    }
+
+    // ==== PAUSE BUTTON ====
+    function setupPauseButton() {
+      const btn = document.getElementById("pause-btn");
+      btn.addEventListener("click", () => {
+        isPaused = !isPaused;
+        if (isPaused) {
+          btn.textContent = "Resume";
+          controls.unlock();
+        } else {
+          btn.textContent = "Pause";
+          // player clicks screen again to lock and continue
         }
       });
     }
